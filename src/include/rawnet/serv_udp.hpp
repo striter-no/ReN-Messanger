@@ -3,9 +3,17 @@
 #include <stdexcept>
 #include <functional>
 #include <thread>
+#include <queue>
+#include <mutex>
+#include <condition_variable>
 #include "common.hpp"
 
 namespace nw {
+    struct message {
+        address client_addr;
+        std::vector<uint8_t> data;
+    };
+
     class server_udp {
             bool stop_event = false;
             std::function<void(address, std::vector<uint8_t>&, std::vector<uint8_t>&)> v_on_msg_cli;
@@ -16,15 +24,23 @@ namespace nw {
 
             int sockfd;
             struct sockaddr_in servaddr;
-            std::vector<struct sockaddr> clients;
-            std::vector<std::thread> client_threads;
+            
+            // Message queue for thread-safe processing
+            std::queue<message> msg_queue;
+            std::mutex queue_mutex;
+            std::condition_variable queue_cv;
+            
+            std::thread receiver_thread;
+            std::vector<std::thread> worker_threads;
 
-            void process_client(struct sockaddr &clisock, int cli_inx, bool clear_buffer = true){
-                while (not stop_event) {
-                    socklen_t len = sizeof(clisock);  //len is value/result 
+            void receiver_loop() {
+                while (!stop_event) {
+                    struct sockaddr clisock;
+                    socklen_t len = sizeof(clisock);
     
                     std::vector<uint8_t> buffer;
                     buffer.resize(buf_len);
+                    
                     int n = recvfrom(
                         sockfd, &buffer[0], buf_len,  
                         MSG_WAITALL, 
@@ -37,16 +53,7 @@ namespace nw {
                     }
 
                     if (n >= 0) {
-                        if (clear_buffer){
-                            for (int i = 0; i < buffer.size(); i++){
-                                if (buffer[i] == '\0'){
-                                    buffer.resize(i);
-                                    break;
-                                }
-                            }
-                        } else {
-                            buffer.resize(n);
-                        }
+                        buffer.resize(n);
                     } else {
                         buffer.clear();
                     }
@@ -57,14 +64,55 @@ namespace nw {
                         ntohs(cli_in_addr->sin_port)
                     );
                     
+                    // Add message to queue
+                    {
+                        std::lock_guard<std::mutex> lock(queue_mutex);
+                        msg_queue.push({cli_addr, buffer});
+                    }
+                    queue_cv.notify_one();
+                }
+            }
+
+            void worker_loop() {
+                while (!stop_event) {
+                    message msg;
+                    bool got_message = false;
+                    
+                    // Quickly grab a message from queue with minimal locking
+                    {
+                        std::unique_lock<std::mutex> lock(queue_mutex);
+                        if (queue_cv.wait_for(lock, std::chrono::milliseconds(100), 
+                            [this] { return !msg_queue.empty() || stop_event; })) {
+                            
+                            if (stop_event) break;
+                            
+                            if (!msg_queue.empty()) {
+                                msg = msg_queue.front();
+                                msg_queue.pop();
+                                got_message = true;
+                            }
+                        }
+                    } // Lock is released here
+                    
+                    if (!got_message) {
+                        continue;
+                    }
+                    
+                    // Process message without holding any locks
                     std::vector<uint8_t> ans_buffer;
-                    v_on_msg_cli(cli_addr, buffer, ans_buffer);
+                    v_on_msg_cli(msg.client_addr, msg.data, ans_buffer);
+                    
+                    // Send response
+                    struct sockaddr_in cli_sockaddr;
+                    cli_sockaddr.sin_family = AF_INET;
+                    cli_sockaddr.sin_addr.s_addr = inet_addr(msg.client_addr.ip.c_str());
+                    cli_sockaddr.sin_port = htons(msg.client_addr.port);
                     
                     sendto(
                         sockfd, 
                         &ans_buffer[0], ans_buffer.size(), 
                         MSG_CONFIRM, 
-                        (const struct sockaddr *) &clisock, len
+                        (const struct sockaddr *) &cli_sockaddr, sizeof(cli_sockaddr)
                     );
                 }
             }
@@ -81,22 +129,27 @@ namespace nw {
             
             void run(bool detached = false, bool clear_buffer = true, int max_buff_size = 4096){
                 buf_len = max_buff_size;
-                clients.resize(threads);
-
-                for(auto &cs: clients)
-                    memset(&cs, 0, sizeof(cs));
                 
-                client_threads.resize(threads);
-
+                // Start receiver thread
+                receiver_thread = std::thread([this]() { receiver_loop(); });
+                
+                // Start worker threads
+                worker_threads.resize(threads);
                 for (int i = 0; i < threads; i++) {
-                    client_threads[i] = std::thread(
-                        [&](){process_client(clients[i], i, clear_buffer);}
-                    );
+                    worker_threads[i] = std::thread([this]() { worker_loop(); });
                 }
 
-                for(auto &t: client_threads)
-                    if(t.joinable() && !detached) t.join();
-                    else t.detach();
+                if (!detached) {
+                    receiver_thread.join();
+                    for (auto& t : worker_threads) {
+                        t.join();
+                    }
+                } else {
+                    receiver_thread.detach();
+                    for (auto& t : worker_threads) {
+                        t.detach();
+                    }
+                }
             }
 
             void create(address addr){
@@ -124,10 +177,18 @@ namespace nw {
             
             void stop(){
                 stop_event = true;
+                queue_cv.notify_all();
                 close(sockfd);
 
-                for(auto &t: client_threads)
-                    if(t.joinable()) t.join();
+                if (receiver_thread.joinable()) {
+                    receiver_thread.join();
+                }
+                
+                for (auto& t : worker_threads) {
+                    if (t.joinable()) {
+                        t.join();
+                    }
+                }
             }
 
             server_udp(){}

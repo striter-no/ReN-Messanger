@@ -13,7 +13,7 @@ namespace crypto {
     std::string bytes_to_hex(const std::vector<uint8_t>& bytes) {
         std::ostringstream oss;
         for (auto b : bytes) {
-            oss << std::hex << std::setfill('0') << std::setw(2) << static_cast<int>(b);
+            oss << std::hex << std::setfill('0') << std::setw(2) << static_cast<int>(b) << ' ';
         }
         return oss.str();
     }

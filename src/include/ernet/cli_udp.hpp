@@ -239,3 +239,12 @@ namespace ernet {
         ernet_client(){}
     };
 }
+
+// 7f c3 08 70 d1 c2 83 d6 4a 2a ea ab af 3d 25 b5 fb 62 f9 f1 1a d6 bc 45 5f fe 81 75 39 36 36 33
+// 7f c3 08 70 d1 c2 83 d6 4a 2a ea ab af 3d 25 b5 fb 62 f9 f1 1a d6 bc 45 5f fe 81 75 00 5a 11 83
+
+// b4 9a de 7a 22 50 ec 7b fe 30 7b f9 2c 6f 63 f6 d9 12 f1 c0 25 f8 be c3 34 0b 1c 71 e2 6d b3 45
+// b4 9a de 7a 22 50 ec 7b fe 30 7b f9 2c 6f 63 f6 d9 12 f1 c0 25 f8 be c3 34 0b 1c 71 e2 6d b3 45
+
+// af f0 ec 02 90 5e a1 5a 36 1c bd ac 18 2e 2e 97 83 43 50 bb 71 81 cf e3 85 af 98 2b fd 91 ed 29
+// dataaf f0 ec 02 90 5e a1 5a 36 1c bd ac 18 2e 2e 97 83 43 50 bb 71 81 cf e3 85 af 98 2b fd 91 ed 29

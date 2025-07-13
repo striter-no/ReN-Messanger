@@ -91,16 +91,16 @@ namespace ernet {
             std::string strdata = std::string(data.begin(), data.end());
             
             ssize_t r_strdata_size;
-            try {
+            //* try {
                 r_strdata_size = std::stoull(next_simb(strdata, tracker, ' '));
-            } catch (const std::exception &ex) {
-                std::cerr << "<ernet> [udp/serv] -> " << cliaddr.str() << " -> fatal error: protocol missmatch: first word has to be R_STRDATA_SIZE\n\t" << ex.what() << std::endl;
-                ans = nw::getv("ernet-datasize-corrupted");
-                return;
-            }
+            //* } catch (const std::exception &ex) {
+            //                 std::cerr << "<ernet> [udp/serv] -> " << cliaddr.str() << " -> fatal error: protocol missmatch: first word has to be R_STRDATA_SIZE\n\t" << ex.what() << std::endl;
+            //                 ans = nw::getv("ernet-datasize-corrupted");
+            //                 return;
+            //* }
 
             // (uid == 1 ? cli1: cli2) << "[>] receveing " << r_strdata_size << " bytes" << std::endl;
-            try {
+            //* try {
                 strdata = std::string(
                     strdata.begin() + tracker,
                     strdata.begin() + tracker + r_strdata_size
@@ -109,30 +109,35 @@ namespace ernet {
                     data.begin() + tracker,
                     data.begin() + tracker + r_strdata_size
                 };
-            } catch (const std::exception &ex) {
-                std::cerr << "<ernet> [udp/serv] -> " << cliaddr.str() << " -> fatal error: data corruption: there is no data for this R_STRDATA_SIZE\n\t" << ex.what() << std::endl;
-                ans = nw::getv("data-corrupted");
-                return;
-            }
+            //* } catch (const std::exception &ex) {
+            //                 std::cerr << "<ernet> [udp/serv] -> " << cliaddr.str() << " -> fatal error: data corruption: there is no data for this R_STRDATA_SIZE\n\t" << ex.what() << std::endl;
+            //                 ans = nw::getv("data-corrupted");
+            //                 return;
+            //* }
             tracker = 0;
 
             // (uid == 1 ? cli1: cli2) << "[" << cliaddr.str() << "] " << '"' << strdata << '"' << data.size() << "/" << strdata.size() << std::endl;
             
             // (uid == 1 ? cli1: cli2) << "hash is: " << crypto::sha256::hexidigest(strdata) << '/' << crypto::sha256::hexidigest(data) << std::endl;
             
-            try{
+            //* try{
                 uid = std::stoll(next_simb(strdata, tracker, ' '));
-            } catch (const std::exception &ex) {
-                std::cerr << "<ernet> [udp/serv] -> " << cliaddr.str() << " -> fatal error: protocol missmatch: second word has to be ERNET_UID\n\t" << ex.what() << std::endl;
-                ans = nw::getv("ernet-uid-corrupted");
-                return;
-            }
+            //* } catch (const std::exception &ex) {
+            //                 std::cerr << "<ernet> [udp/serv] -> " << cliaddr.str() << " -> fatal error: protocol missmatch: second word has to be ERNET_UID\n\t" << ex.what() << std::endl;
+            //                 ans = nw::getv("ernet-uid-corrupted");
+            //                 return;
+            //* }
 
             (uid == 1 ? cli1: cli2) << std::endl;
+            (uid == 1 ? cli1: cli2).flush();
             (uid == 1 ? cli1: cli2) << "---------------------\n" << cliaddr.str() << std::endl;
+            (uid == 1 ? cli1: cli2).flush();
             (uid == 1 ? cli1: cli2) << std::endl;
+            (uid == 1 ? cli1: cli2).flush();
             (uid == 1 ? cli1: cli2) << cliaddr.str() << " [>] recv: " << data.size() << " bytes:\n";
+            (uid == 1 ? cli1: cli2).flush();
             (uid == 1 ? cli1: cli2) << strdata << std::endl;
+            (uid == 1 ? cli1: cli2).flush();
 
             {
                 std::lock_guard<std::shared_mutex> lock(cli_last_active_mutex);
@@ -148,15 +153,15 @@ namespace ernet {
                     lock.unlock();
                     std::lock_guard<std::shared_mutex> wlock(cli_publics_mutex);
                     crypto::rsa::PublicKey key;
-                    try{
+                    //* try{
                         key = crypto::rsa::PublicKey::loadFromString(std::string{
                             data.begin() + tracker, data.end()
                         });
-                    } catch (const std::exception &ex){
-                        std::cerr << "<ernet> [udp/serv] -> " << cliaddr.str() << " -> fatal error: rsa public key: key seems to be corrupted\n\t" << ex.what() << std::endl;
-                        ans = nw::getv("ernet-rsa_pubkey-corrupted");
-                        return;
-                    }
+                    //* } catch (const std::exception &ex){
+                    //                 std::cerr << "<ernet> [udp/serv] -> " << cliaddr.str() << " -> fatal error: rsa public key: key seems to be corrupted\n\t" << ex.what() << std::endl;
+                    //                 ans = nw::getv("ernet-rsa_pubkey-corrupted");
+                    //                 return;
+                    //* }
                     
                     cli_publics[uid] = key;
                     ans = nw::getv("rsa-reg-ok " + serv_pb.saveToString());
@@ -172,30 +177,31 @@ namespace ernet {
                     std::lock_guard<std::shared_mutex> wlock(cli_aes_keys_mutex);
                     crypto::rsa::CryptoF rcrypt;
                     rcrypt.set_key_pair(&serv_key, &cli_publics[uid]);
-                    try {
+                    //* try {
                         data = {data.begin() + tracker, data.end()};
-                    } catch (const std::exception &ex){
-                        std::cerr << "<ernet> [udp/serv] -> " << cliaddr.str() << " -> fatal error: aes key: key seems to be corrupted\n\t" << ex.what() << std::endl;
-                        ans = nw::getv("ernet-aes_key_data-corrupted");
-                        return;
-                    }
-                    try {
+                    //* } catch (const std::exception &ex){
+                    //                 std::cerr << "<ernet> [udp/serv] -> " << cliaddr.str() << " -> fatal error: aes key: key seems to be corrupted\n\t" << ex.what() << std::endl;
+                    //                 ans = nw::getv("ernet-aes_key_data-corrupted");
+                    //                 return;
+                    //* }
+                    //* try {
                         data = rcrypt.decrypt(data);
-                    } catch (const std::exception &ex) {
-                        std::cerr << "<ernet> [udp/serv] -> " << cliaddr.str() << " -> fatal error: rsa encr data/key: data/key seems to be corrupted. Check server pubkey/privkey/client pubkey\n\t" << ex.what() << std::endl;
-                        ans = nw::getv("ernet-rsa_data-corrupted");
-                        return;
-                    }
+                    //* } catch (const std::exception &ex) {
+                    //                 std::cerr << "<ernet> [udp/serv] -> " << cliaddr.str() << " -> fatal error: rsa encr data/key: data/key seems to be corrupted. Check server pubkey/privkey/client pubkey\n\t" << ex.what() << std::endl;
+                    //                 ans = nw::getv("ernet-rsa_data-corrupted");
+                    //                 return;
+                    //* }
 
                     (uid == 1 ? cli1: cli2) << "aes key hash is: " << crypto::sha256::hexidigest(data) << std::endl;
+                    (uid == 1 ? cli1: cli2).flush();
 
-                    try {
+                    //* try {
                         cli_aes_keys[uid] = crypto::aes::Key(data);
-                    } catch (const std::exception &ex) {
-                        std::cerr << "<ernet> [udp/serv] -> " << cliaddr.str() << " -> fatal error: aes key: key seems to be corrupted\n\t" << ex.what() << std::endl;
-                        ans = nw::getv("ernet-aes_key-corrupted");
-                        return;
-                    }
+                    //* } catch (const std::exception &ex) {
+                    //                 std::cerr << "<ernet> [udp/serv] -> " << cliaddr.str() << " -> fatal error: aes key: key seems to be corrupted\n\t" << ex.what() << std::endl;
+                    //                 ans = nw::getv("ernet-aes_key-corrupted");
+                    //                 return;
+                    //* }
 
                     ans = aes_getv("aes-reg-ok", cli_aes_keys[uid]);
                     return;
@@ -208,15 +214,15 @@ namespace ernet {
                 acrypt.set_key(cli_aes_keys[uid]);
             }
 
-            try {
+            //* try {
                 data = acrypt.decrypt({
                     data.begin() + tracker, data.end()
                 });
-            } catch (const std::exception &ex) {
-                std::cerr << "<ernet> [udp/serv] -> " << cliaddr.str() << " -> fatal error: aes data decryption: data seems to be corrupted\n\t" << ex.what() << std::endl;
-                ans = nw::getv("ernet-aes_data-corrupted");
-                return;
-            }
+            //* } catch (const std::exception &ex) {
+            //                 std::cerr << "<ernet> [udp/serv] -> " << cliaddr.str() << " -> fatal error: aes data decryption: data seems to be corrupted\n\t" << ex.what() << std::endl;
+            //                 ans = nw::getv("ernet-aes_data-corrupted");
+            //                 return;
+            //* }
 
             // 3. Hello-echo
             {
@@ -240,25 +246,30 @@ namespace ernet {
             }
 
             std::vector<uint8_t> plain_ans;
-            try{
+            //* try{
                 encr_cb(cliaddr, data, plain_ans);
-            } catch (const std::exception &ex){
-                std::cerr << "<ernet/uplevel> [udp/serv] -> " << cliaddr.str() << " -> fatal error: callback failure\n\t" << ex.what() << std::endl;
-                ans = nw::getv("ernet-uplevel-failure");
-                return;
-            }
+            //* } catch (const std::exception &ex){
+            //                 std::cerr << "<ernet/uplevel> [udp/serv] -> " << cliaddr.str() << " -> fatal error: callback failure\n\t" << ex.what() << std::endl;
+            //                 ans = nw::getv("ernet-uplevel-failure");
+            //                 return;
+            //* }
 
-            try{
-                (uid == 1 ? cli1: cli2) << "[=] sending back " << plain_ans.size() << " bytes" << std::endl;
+            // std::cerr << "test of stderr 1" << std::endl;
+            //* try{
+                std::cerr << "test of stderr 2" << std::endl;
+                (uid == 1 ? cli1: cli2) << "[=] sending back " << plain_ans.size() << " bytes: " << crypto::bytes_to_hex(plain_ans) << std::endl;
+                (uid == 1 ? cli1: cli2).flush();
                 (uid == 1 ? cli1: cli2) << std::string{plain_ans.begin(), plain_ans.end()} << std::endl << std::endl;
+                (uid == 1 ? cli1: cli2).flush();
                 ans = acrypt.encrypt(plain_ans);
-            } catch (const std::exception &ex){
-                std::cerr << "<ernet/uplevel/encr> [udp/serv] -> " << cliaddr.str() << " -> fatal error: encryption failure: cannot encrypt callback data\n\t" << ex.what() << std::endl;
-                ans = nw::getv("ernet-encr-failure");
-                
-                
-                return;
-            }
+                (uid == 1 ? cli1: cli2) << "encrypted: " << ans.size() << " bytes: " << crypto::bytes_to_hex(plain_ans) << std::endl << std::endl;
+                (uid == 1 ? cli1: cli2).flush();
+                std::cerr << "test of stderr 3" << std::endl;
+            //* } catch (const std::exception &ex){
+            //                 std::cerr << "<ernet/uplevel/encr> [udp/serv] -> " << cliaddr.str() << " -> fatal error: encryption failure: cannot encrypt callback data\n\t" << ex.what() << std::endl;
+            //                 ans = nw::getv("ernet-encr-failure");
+            //                 return;
+            //* }
         }
 
         public:
@@ -279,9 +290,13 @@ namespace ernet {
                     
                     int uid;
                     deflect(a, b, ans, uid);
+                    std::cout << "send " << ans.size() << " bytes, hash: " << crypto::sha256::hexidigest(ans) << "\n-> data: " << crypto::bytes_to_hex(ans) << std::endl;
                     (uid == 1 ? cli1: cli2) << "[>>] real send: " << ans.size() << std::endl;
+                    (uid == 1 ? cli1: cli2).flush();
                     (uid == 1 ? cli1: cli2) << "send hash: " << crypto::sha256::hexidigest(ans) << std::endl;
+                    (uid == 1 ? cli1: cli2).flush();
                     (uid == 1 ? cli1: cli2) << "****" << std::endl;
+                    (uid == 1 ? cli1: cli2).flush();
 
                     auto s = nw::getv(std::to_string(ans.size()) + ' ');
                     ans.insert(ans.begin(), s.begin(), s.end());
@@ -323,8 +338,8 @@ namespace ernet {
             cli2.open("2.log");
         }
         ~ernet_server(){
-            // cli1.close();
-            // cli2.close();
+            cli1.close();
+            cli2.close();
         }
     };
 }

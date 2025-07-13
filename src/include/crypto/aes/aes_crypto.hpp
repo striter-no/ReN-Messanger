@@ -4,6 +4,7 @@
 #include "keys.hpp"
 #include <cstdint>
 #include <cmath>
+#include <crypto/rsa/mpz_math.hpp> // Just for bytes_to_hex
 
 namespace crypto::aes {
     class CryptoF {
@@ -23,7 +24,7 @@ namespace crypto::aes {
             if (data.empty()) throw std::runtime_error("Data is empty");
             uint8_t pad_len = data.back();
             if (pad_len == 0) throw std::runtime_error("Invalid padding: pad_len == 0");
-            if (pad_len > data.size()) throw std::runtime_error("Invalid padding: pad_len > data.size()");
+            if (pad_len > data.size()) throw std::runtime_error("Invalid padding: pad_len > data.size(): " + std::to_string(pad_len) + " > " + std::to_string(data.size()));
             for (size_t i = data.size() - pad_len; i < data.size(); ++i) {
                 if (data[i] != pad_len) throw std::runtime_error("Invalid PKCS#7 padding");
             }
@@ -58,9 +59,14 @@ namespace crypto::aes {
         std::vector<uint8_t> decrypt(const std::vector<uint8_t> &bytes){
             // if (!key) throw std::runtime_error("<aes> [decrypt] cannot decrypt bytes with no key");
             if (bytes.size() < 16) throw std::runtime_error("Ciphertext too short");
+            std::cout << "real bytes sz: " << bytes.size() << std::endl;
+            std::cout << "rhex: " << bytes_to_hex(bytes);
             std::vector<uint8_t> iv(bytes.begin(), bytes.begin() + 16);
             std::vector<uint8_t> ciphertext(bytes.begin() + 16, bytes.end());
+            std::cout << "cyphertext sz: " << ciphertext.size() << std::endl;
             auto decrypted = aes.DecryptCBC(ciphertext, key.get_data(), iv);
+            std::cout << "decrhex: " << bytes_to_hex(decrypted);
+            std::cout << std::endl;
             return pkcs7_unpad(decrypted);
         }
 
