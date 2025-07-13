@@ -5,6 +5,12 @@
 
 bool first_log = true;
 
+#ifdef NETDEBUG
+    #define LOG_M(...) do { std::cout << __VA_ARGS__ << std::endl; } while(0)
+#else
+    #define LOG_M(...) do {} while(0)
+#endif
+
 void log_to_file(
     std::string filename,
     std::string message

@@ -1,4 +1,6 @@
 #define ENCRYPTED_RNET
+// #define NETDEBUG
+
 #include <mirror/client.hpp>
 
 int main(){

@@ -5,6 +5,7 @@
 #include <rawnet/serv_udp.hpp>
 #include <rawnet/base_u.hpp>
 #include <utility/strvec.hpp>
+#include <utility/log.hpp>
 
 #include <crypto/aes/aes_crypto.hpp>
 #include <crypto/rsa/oaep_crypto.hpp>
@@ -33,8 +34,6 @@ namespace ernet {
 
         std::thread cleanup_thread;
         std::atomic<bool> stop_cleanup{false};
-
-        std::ofstream cli1, cli2;
 
         nw::server_udp raws;
         std::function<void(
@@ -95,7 +94,7 @@ namespace ernet {
             try {
                 r_strdata_size = std::stoull(next_simb(strdata, tracker, ' '));
             } catch (const std::exception &ex) {
-                std::cerr << "<ernet> [udp/serv] -> " << cliaddr.str() << " -> fatal error: protocol mismatch: first word has to be R_STRDATA_SIZE\n\t" << ex.what() << std::endl;
+                LOG_M("<ernet> [udp/serv] -> " << cliaddr.str() << " -> fatal error: protocol mismatch: first word has to be R_STRDATA_SIZE\n\t" << ex.what());
                 ans = nw::getv("ernet-datasize-corrupted");
                 return;
             }
@@ -115,7 +114,7 @@ namespace ernet {
                     data.begin() + tracker + r_strdata_size
                 };
             } catch (const std::exception &ex) {
-                std::cerr << "<ernet> [udp/serv] -> " << cliaddr.str() << " -> fatal error: data corruption: there is no data for this R_STRDATA_SIZE\n\t" << ex.what() << std::endl;
+                LOG_M("<ernet> [udp/serv] -> " << cliaddr.str() << " -> fatal error: data corruption: there is no data for this R_STRDATA_SIZE\n\t" << ex.what());
                 ans = nw::getv("data-corrupted");
                 return;
             }
@@ -126,7 +125,7 @@ namespace ernet {
             try{
                 control_sum = next_simb(strdata, tracker, ' ');
             } catch (const std::exception &ex) {
-                std::cerr << "<ernet> [udp/serv] -> " << cliaddr.str() << " -> fatal error: protocol mismatch: second word has to be CONTROL_SUM\n\t" << ex.what() << std::endl;
+                LOG_M("<ernet> [udp/serv] -> " << cliaddr.str() << " -> fatal error: protocol mismatch: second word has to be CONTROL_SUM\n\t" << ex.what());
                 ans = nw::getv("ernet-control_sum-proto");
                 return;
             }
@@ -135,10 +134,10 @@ namespace ernet {
             data = std::vector<uint8_t>{ data.begin() + tracker, data.end() };
             tracker = 0;
 
-            std::cout << "data is:\n" << strdata << std::endl; 
+            LOG_M("data is:\n" << strdata);
 
             if (control_sum != crypto::sha256::hexidigest(data)){
-                std::cerr << "<ernet> [udp/serv] -> " << cliaddr.str() << " -> fatal error: control sum mismatch:\n\t" << control_sum << " != " << crypto::sha256::hexidigest(data) << std::endl;
+                LOG_M("<ernet> [udp/serv] -> " << cliaddr.str() << " -> fatal error: control sum mismatch:\n\t" << control_sum << " != " << crypto::sha256::hexidigest(data));
                 ans = nw::getv("ernet-control_sum-corrupted");
                 return;
             }
@@ -146,7 +145,7 @@ namespace ernet {
             try{
                 uid = std::stoll(next_simb(strdata, tracker, ' '));
             } catch (const std::exception &ex) {
-                std::cerr << "<ernet> [udp/serv] -> " << cliaddr.str() << " -> fatal error: protocol mismatch: third word has to be ERNET_UID\n\t" << ex.what() << std::endl;
+                LOG_M("<ernet> [udp/serv] -> " << cliaddr.str() << " -> fatal error: protocol mismatch: third word has to be ERNET_UID\n\t" << ex.what());
                 ans = nw::getv("ernet-uid-corrupted");
                 return;
             }
@@ -170,7 +169,7 @@ namespace ernet {
                             data.begin() + tracker, data.end()
                         });
                     } catch (const std::exception &ex){
-                        std::cerr << "<ernet> [udp/serv] -> " << cliaddr.str() << " -> fatal error: rsa public key: key seems to be corrupted\n\t" << ex.what() << std::endl;
+                        LOG_M("<ernet> [udp/serv] -> " << cliaddr.str() << " -> fatal error: rsa public key: key seems to be corrupted\n\t" << ex.what());
                         ans = nw::getv("ernet-rsa_pubkey-corrupted");
                         return;
                     }
@@ -192,14 +191,14 @@ namespace ernet {
                     try {
                         data = {data.begin() + tracker, data.end()};
                     } catch (const std::exception &ex){
-                        std::cerr << "<ernet> [udp/serv] -> " << cliaddr.str() << " -> fatal error: aes key: key seems to be corrupted\n\t" << ex.what() << std::endl;
+                        LOG_M("<ernet> [udp/serv] -> " << cliaddr.str() << " -> fatal error: aes key: key seems to be corrupted\n\t" << ex.what());
                         ans = nw::getv("ernet-aes_key_data-corrupted");
                         return;
                     }
                     try {
                         data = rcrypt.decrypt(data);
                     } catch (const std::exception &ex) {
-                        std::cerr << "<ernet> [udp/serv] -> " << cliaddr.str() << " -> fatal error: rsa encr data/key: data/key seems to be corrupted. Check server pubkey/privkey/client pubkey\n\t" << ex.what() << std::endl;
+                        LOG_M("<ernet> [udp/serv] -> " << cliaddr.str() << " -> fatal error: rsa encr data/key: data/key seems to be corrupted. Check server pubkey/privkey/client pubkey\n\t" << ex.what());
                         ans = nw::getv("ernet-rsa_data-corrupted");
                         return;
                     }
@@ -210,7 +209,7 @@ namespace ernet {
                     try {
                         cli_aes_keys[uid] = crypto::aes::Key(data);
                     } catch (const std::exception &ex) {
-                        std::cerr << "<ernet> [udp/serv] -> " << cliaddr.str() << " -> fatal error: aes key: key seems to be corrupted\n\t" << ex.what() << std::endl;
+                        LOG_M("<ernet> [udp/serv] -> " << cliaddr.str() << " -> fatal error: aes key: key seems to be corrupted\n\t" << ex.what());
                         ans = nw::getv("ernet-aes_key-corrupted");
                         return;
                     }
@@ -231,7 +230,7 @@ namespace ernet {
                     data.begin() + tracker, data.end()
                 });
             } catch (const std::exception &ex) {
-                std::cerr << "<ernet> [udp/serv] -> " << cliaddr.str() << " -> fatal error: aes data decryption: data seems to be corrupted\n\t" << ex.what() << std::endl;
+                LOG_M("<ernet> [udp/serv] -> " << cliaddr.str() << " -> fatal error: aes data decryption: data seems to be corrupted\n\t" << ex.what());
                 ans = nw::getv("ernet-aes_data-corrupted");
                 return;
             }
@@ -261,7 +260,7 @@ namespace ernet {
             try{
                 encr_cb(cliaddr, data, plain_ans);
             } catch (const std::exception &ex){
-                std::cerr << "<ernet/uplevel> [udp/serv] -> " << cliaddr.str() << " -> fatal error: callback failure\n\t" << ex.what() << std::endl;
+                LOG_M("<ernet/uplevel> [udp/serv] -> " << cliaddr.str() << " -> fatal error: callback failure\n\t" << ex.what());
                 ans = nw::getv("ernet-uplevel-failure");
                 return;
             }
@@ -271,7 +270,7 @@ namespace ernet {
                 ans = acrypt.encrypt(plain_ans);
                 
             } catch (const std::exception &ex){
-                std::cerr << "<ernet/uplevel/encr> [udp/serv] -> " << cliaddr.str() << " -> fatal error: encryption failure: cannot encrypt callback data\n\t" << ex.what() << std::endl;
+                LOG_M("<ernet/uplevel/encr> [udp/serv] -> " << cliaddr.str() << " -> fatal error: encryption failure: cannot encrypt callback data\n\t" << ex.what());
                 ans = nw::getv("ernet-encr-failure");
                 return;
             }
@@ -295,7 +294,7 @@ namespace ernet {
                     
                     int uid;
                     deflect(a, b, ans, uid);
-                    std::cout << "send " << ans.size() << " bytes, hash: " << crypto::sha256::hexidigest(ans) << "\n-> data: " << crypto::bytes_to_hex(ans) << std::endl;
+                    LOG_M("send " << ans.size() << " bytes, hash: " << crypto::sha256::hexidigest(ans) << "\n-> data: " << crypto::bytes_to_hex(ans));
                     
                     auto csum = nw::getv(crypto::sha256::hexidigest(ans) + ' ');
                     ans.insert(ans.begin(), csum.begin(), csum.end());

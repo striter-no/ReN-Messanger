@@ -59,14 +59,14 @@ namespace crypto::aes {
         std::vector<uint8_t> decrypt(const std::vector<uint8_t> &bytes){
             // if (!key) throw std::runtime_error("<aes> [decrypt] cannot decrypt bytes with no key");
             if (bytes.size() < 16) throw std::runtime_error("Ciphertext too short");
-            std::cout << "real bytes sz: " << bytes.size() << std::endl;
-            std::cout << "rhex: " << bytes_to_hex(bytes);
+            // std::cout << "real bytes sz: " << bytes.size() << std::endl;
+            // std::cout << "rhex: " << bytes_to_hex(bytes);
             std::vector<uint8_t> iv(bytes.begin(), bytes.begin() + 16);
             std::vector<uint8_t> ciphertext(bytes.begin() + 16, bytes.end());
-            std::cout << "cyphertext sz: " << ciphertext.size() << std::endl;
+            // std::cout << "cyphertext sz: " << ciphertext.size() << std::endl;
             auto decrypted = aes.DecryptCBC(ciphertext, key.get_data(), iv);
-            std::cout << "decrhex: " << bytes_to_hex(decrypted);
-            std::cout << std::endl;
+            // std::cout << "decrhex: " << bytes_to_hex(decrypted);
+            // std::cout << std::endl;
             return pkcs7_unpad(decrypted);
         }
 

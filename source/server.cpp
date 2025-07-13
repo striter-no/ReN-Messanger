@@ -1,4 +1,5 @@
 #define ENCRYPTED_RNET
+// #define NETDEBUG
 
 #include <mirror/server.hpp>
 #include <mirror/proto-alpha/serv.hpp>

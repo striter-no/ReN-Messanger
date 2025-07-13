@@ -30,7 +30,7 @@ namespace mirror {
         auto vreq = std::move(req);
         while (retries-- > 0 && vresp.size() == 0){
             cli->send(vreq);
-            if (cli->recv(vresp) == -2){
+            if (cli->recv(vresp) == -1){
                 usleep(delay * 0.5 * 1'000'000);
                 continue;
             }

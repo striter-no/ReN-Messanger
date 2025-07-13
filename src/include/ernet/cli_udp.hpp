@@ -5,6 +5,7 @@
 #include <rawnet/cli_udp.hpp>
 #include <rawnet/base_u.hpp>
 #include <utility/strvec.hpp>
+#include <utility/log.hpp>
 
 #include <crypto/aes/aes_crypto.hpp>
 #include <crypto/rsa/oaep_crypto.hpp>
@@ -52,7 +53,7 @@ namespace ernet {
             cli->recv(vresp);
             
             if (vresp.size() < 10) {
-                std::cout << "[retry] received data too small, retrying..." << std::endl;
+                LOG_M("[retry] received data too small, retrying...");
                 vresp.clear();
                 usleep(delay * 1'000'000);
                 continue;
@@ -60,7 +61,7 @@ namespace ernet {
 
             std::string resp_str(vresp.begin(), vresp.end());
             if (resp_str == "ernet-control_sum-corrupted") {
-                std::cout << "[retry] server detected control sum mismatch, retrying..." << std::endl;
+                LOG_M("[retry] server detected control sum mismatch, retrying...");
                 vresp.clear();
                 usleep(delay * 1'000'000);
                 continue;
@@ -89,11 +90,11 @@ namespace ernet {
             int retries = 3,
             float delay = 1.f
         ){
-            std::cout << "[>] sending " << req.size() << " bytes" << std::endl;
+            LOG_M("[>] sending " << req.size() << " bytes");
             
             auto csum = crypto::sha256::hexidigest(req) + " ";
             req.insert(req.begin(), csum.begin(), csum.end());
-            std::cout << '"' << std::string{req.begin(), req.end()} << '"' << std::endl;
+            LOG_M('"' << std::string{req.begin(), req.end()} << '"');
 
             auto s = nw::getv(std::to_string(req.size()) + ' ');
             req.insert(req.begin(), s.begin(), s.end());
@@ -103,7 +104,7 @@ namespace ernet {
 
             // Validate response size
             if (resp.size() < 10) {
-                std::cerr << "<ernet_cli> [__send] response too small for parsing" << std::endl;
+                LOG_M("<ernet_cli> [__send] response too small for parsing");
                 return false;
             }
 
@@ -134,7 +135,7 @@ namespace ernet {
                     return false;
                 }
                 
-                std::cout << "[<] recevied " << r_strdata_size << " bytes ";
+                LOG_M("[<] recevied " << r_strdata_size << " bytes ");
                 resp = {
                     resp.begin() + tracker,
                     resp.begin() + tracker + r_strdata_size
@@ -147,7 +148,7 @@ namespace ernet {
                     resp.end()
                 };
 
-                std::cout << "recv hash: " << crypto::sha256::hexidigest(resp) << std::endl;
+                LOG_M("recv hash: " << crypto::sha256::hexidigest(resp));
 
                 if (crypto::sha256::hexidigest(resp) != control_sum){
                     std::cerr << "<ernet_cli> [__send] control sums mismatch: " + control_sum + " != " + crypto::sha256::hexidigest(resp);
@@ -155,7 +156,7 @@ namespace ernet {
                 }
 
                 check_serv({resp.begin(), resp.end()});
-                std::cout << " (" << resp.size() << ')' << std::endl;
+                LOG_M(" (" << resp.size() << ')');
                 
             } catch (const std::exception &ex) {
                 std::cerr << "<ernet_cli> [__send] error parsing response size: " << ex.what() << std::endl;
@@ -170,7 +171,7 @@ namespace ernet {
             std::vector<uint8_t> resp;
             int track;
             if (recreate_uid) uid = nw::get_uid();
-            std::cout << "gen uid: " << uid << std::endl;
+            LOG_M("gen uid: " << uid);
 
             // 1. RSA
             crypto::rsa::CryptoF rsa_cf;
@@ -178,8 +179,8 @@ namespace ernet {
             pr_key = pair.first;
             pb_key = pair.second;
 
-            std::cout << "rsa keys, gen pair" << std::endl;
-            std::cout << "pubhash: " << crypto::sha256::hexidigest(pb_key.saveToString()) << std::endl;
+            LOG_M("rsa keys, gen pair");
+            LOG_M("pubhash: " << crypto::sha256::hexidigest(pb_key.saveToString()));
 
             resp.clear();
             if (!__send(&rawcli, nw::getv(std::to_string(uid) + " " + pb_key.saveToString()), resp))
@@ -188,38 +189,38 @@ namespace ernet {
             str_resp = {resp.begin(), resp.end()};
             track = 0;
             if (next_simb(str_resp, track, ' ') == "rsa-reg-ok"){
-                std::cout << "pubkey: " << std::string(str_resp.begin() + track, str_resp.end()) << std::endl;
+                LOG_M("pubkey: " << std::string(str_resp.begin() + track, str_resp.end()));
 
                 serv_pb = crypto::rsa::PublicKey::loadFromString({
                     str_resp.begin() + track,
                     str_resp.end()
                 });
-                std::cout << "got server pubkey" << std::endl;
+                LOG_M("got server pubkey");
             } else {
                 throw std::runtime_error("<ernet_cli> [ern_hello/rsa-resp] cannot register my rsa pubkey");
             }
             
-            std::cout << "server pubhash: " << crypto::sha256::hexidigest(serv_pb.saveToString()) << std::endl;
+            LOG_M("server pubhash: " << crypto::sha256::hexidigest(serv_pb.saveToString()));
             rsa_cf.set_key_pair(
                 &pr_key, &serv_pb
             );
 
             // 2. AES
-            std::cout << "aes step ahead" << std::endl;
+            LOG_M("aes step ahead");
             serv_aes_k.generate(AES_KEY_LENGTH);
             aes_cf.set_key(serv_aes_k);
 
             std::vector<uint8_t> aes_data = nw::getv(std::to_string(uid) + ' ');
-            std::cout << "key legnth: " << serv_aes_k.save_to_string().size() << std::endl;
+            LOG_M("key legnth: " << serv_aes_k.save_to_string().size());
             auto encr = rsa_cf.encrypt(serv_aes_k.get_data());
             aes_data.insert(
                 aes_data.end(), 
                 encr.begin(), encr.end()
             );
-            std::cout << "encryped size: " << encr.size() << std::endl;
-            std::cout << "sending aes key over rsa: " << aes_data.size() << " bytes" << std::endl;
-            std::cout << std::string{aes_data.begin(), aes_data.end()} << std::endl;
-            std::cout << "aes key hash is: " << crypto::sha256::hexidigest(serv_aes_k.get_data()) << std::endl;
+            LOG_M("encryped size: " << encr.size());
+            LOG_M("sending aes key over rsa: " << aes_data.size() << " bytes");
+            LOG_M(std::string{aes_data.begin(), aes_data.end()});
+            LOG_M("aes key hash is: " << crypto::sha256::hexidigest(serv_aes_k.get_data()));
             
             resp.clear();
             if (!__send(&rawcli, aes_data, resp))
@@ -230,11 +231,11 @@ namespace ernet {
             track = 0;
             if (str_resp != "aes-reg-ok")
                 throw std::runtime_error("<ernet_cli> [ern_hello/aes-resp] cannot register my aes key");
-            std::cout << "everything is ok" << std::endl;
+            LOG_M("everything is ok");
 
             // 3. Hello-echo
 
-            std::cout << "echo-hello sending" << std::endl;
+            LOG_M("echo-hello sending");
             auto req = nw::getv(std::to_string(uid) + ' ');
             auto hello_vec = aes_cf.encrypt(nw::getv("hello"));
             req.insert(req.end(), hello_vec.begin(), hello_vec.end());
@@ -249,8 +250,8 @@ namespace ernet {
                 throw std::runtime_error("<ernet_cli> [ern_hello/echo] server rejected ern hello: " + str_resp);
             }
 
-            std::cout << "everything is ok" << std::endl;
-            std::cout << "ERN handshake happend" << std::endl;
+            LOG_M("everything is ok");
+            LOG_M("ERN handshake happend");
         }
 
         public:
@@ -263,7 +264,7 @@ namespace ernet {
         }
         
         int send(std::vector<uint8_t> &data){
-            std::cout << "[<] sending: " << std::string(data.begin(), data.end()) << std::endl;
+            LOG_M("[<] sending: " << std::string(data.begin(), data.end()));
 
             auto encr = aes_cf.encrypt(data);
             auto uid_v = nw::getv(std::to_string(uid) + " ");
@@ -272,7 +273,7 @@ namespace ernet {
             auto csum = crypto::sha256::hexidigest(encr) + " ";
             encr.insert(encr.begin(), csum.begin(), csum.end());
 
-            std::cout << "[^] sent: " << encr.size() << " bytes" << std::endl;
+            LOG_M("[^] sent: " << encr.size() << " bytes");
             auto s = nw::getv(std::to_string(encr.size()) + ' ');
             encr.insert(encr.begin(), s.begin(), s.end());
 
@@ -285,8 +286,8 @@ namespace ernet {
             
             // Validate data size
             if (data.size() < 10) {
-                std::cerr << "<ernet_cli> [recv] received data too small for parsing" << std::endl;
-                return -1;
+                LOG_M("<ernet_cli> [recv] received data too small for parsing");
+                return -5;
             }
 
             // Parse size safely
@@ -294,8 +295,8 @@ namespace ernet {
                 std::string strdata{data.begin(), data.end()};
                 size_t space_pos = strdata.find(' ');
                 if (space_pos == std::string::npos) {
-                    std::cerr << "<ernet_cli> [recv] no space found for size parsing" << std::endl;
-                    return -1;
+                    LOG_M("<ernet_cli> [recv] no space found for size parsing");
+                    return -4;
                 }
                 
                 std::string size_str = strdata.substr(0, space_pos);
@@ -304,21 +305,21 @@ namespace ernet {
                 
                 // Validate size
                 if (r_strdata_size <= 0 || r_strdata_size > 1024 * 1024) {
-                    std::cerr << "<ernet_cli> [recv] invalid data size: " << r_strdata_size << std::endl;
-                    return -1;
+                    LOG_M("<ernet_cli> [recv] invalid data size: " << r_strdata_size);
+                    return -3;
                 }
                 
                 // Check if we have enough data
                 if (tracker + r_strdata_size > data.size()) {
-                    std::cerr << "<ernet_cli> [recv] data size mismatch. Expected: " << r_strdata_size << ", Available: " << (data.size() - tracker) << std::endl;
-                    return -1;
+                    LOG_M("<ernet_cli> [recv] data size mismatch. Expected: " << r_strdata_size << ", Available: " << (data.size() - tracker));
+                    return -2;
                 }
 
                 data = {
                     data.begin() + tracker,
                     data.begin() + tracker + r_strdata_size
                 };
-                std::cout << "[>] got: " << data.size() << " bytes" << std::endl;
+                LOG_M("[>] got: " << data.size() << " bytes");
                 
                 tracker = 0;
                 std::string control_sum = next_simb({data.begin(), data.end()}, tracker, ' ');
@@ -326,22 +327,22 @@ namespace ernet {
                     data.begin() + tracker,
                     data.end()
                 };
-
-                std::cout << "recv hash: " << crypto::sha256::hexidigest(data) << std::endl;
+                
+                LOG_M("recv hash: " << crypto::sha256::hexidigest(data));
 
                 if (crypto::sha256::hexidigest(data) != control_sum){
-                    std::cerr << "<ernet_cli> [recv] control sums mismatch: " + control_sum + " != " + crypto::sha256::hexidigest(data);
+                    LOG_M("<ernet_cli> [recv] control sums mismatch: " << control_sum << " != " << crypto::sha256::hexidigest(data));
                     return -1;
                 }
                 
                 check_serv({data.begin(), data.end()});
                 
                 data = aes_cf.decrypt(data);
-                std::cout << "[^] " << std::string(data.begin(), data.end()) << std::endl;
+                LOG_M("[^] " << std::string(data.begin(), data.end()));
                 
             } catch (const std::exception &ex) {
-                std::cerr << "<ernet_cli> [recv] error parsing data size: " << ex.what() << std::endl;
-                return -2;
+                LOG_M("<ernet_cli> [recv] error parsing data size: " << ex.what());
+                return -99;
             }
             
             return n;
