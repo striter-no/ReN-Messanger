@@ -30,7 +30,11 @@ namespace mirror {
         auto vreq = std::move(req);
         while (retries-- > 0 && vresp.size() == 0){
             cli->send(vreq);
-            cli->recv(vresp);
+            if (cli->recv(vresp) == -2){
+                usleep(delay * 0.5 * 1'000'000);
+                continue;
+            }
+            
             if (vresp.size() == 0) usleep(delay * 1'000'000);
         }
         resp = std::move(vresp);
@@ -44,6 +48,7 @@ namespace mirror {
 
         nw::uid_t c_tunnel = -1;
         nw::uid_t peer_uid = -1;
+        int retries = 1;
 
         void check_subproto(std::string resp){
             if (resp == "unreg-msg-type"){
@@ -63,7 +68,7 @@ namespace mirror {
             c_tunnel = tuid;
 
             std::vector<uint8_t> resp;
-            if(!fail_safe_sr(&raw_cli, req.get(), resp))
+            if(!fail_safe_sr(&raw_cli, req.get(), resp, retries))
                 throw std::runtime_error("<mirror> [create-tunnel] server down");
             check_subproto(std::string{resp.begin(), resp.end()});
             
@@ -74,7 +79,7 @@ namespace mirror {
                 proto.check_tunnel(c_tunnel, req);
 
                 std::vector<uint8_t> resp;
-                if(!fail_safe_sr(&raw_cli, req.get(), resp))
+                if(!fail_safe_sr(&raw_cli, req.get(), resp, retries))
                     throw std::runtime_error("<mirror> [create-tunnel:future(check_tunnel)] server down");
                 check_subproto(std::string{resp.begin(), resp.end()});
                 
@@ -95,7 +100,7 @@ namespace mirror {
             proto.connect_tunnel(uid, req);
 
             std::vector<uint8_t> resp;
-            if(!fail_safe_sr(&raw_cli, req.get(), resp))
+            if(!fail_safe_sr(&raw_cli, req.get(), resp, retries))
                 throw std::runtime_error("<mirror> [conn-tunnel] server down");
             check_subproto(std::string{resp.begin(), resp.end()});
             
@@ -113,7 +118,7 @@ namespace mirror {
             proto.close_tunnel(c_tunnel, req);
 
             std::vector<uint8_t> resp;
-            if(!fail_safe_sr(&raw_cli, req.get(), resp))
+            if(!fail_safe_sr(&raw_cli, req.get(), resp, retries))
                 throw std::runtime_error("<mirror> [close-tunnel] server down");
             check_subproto(std::string{resp.begin(), resp.end()});
             
@@ -125,7 +130,7 @@ namespace mirror {
             proto.send(data, c_tunnel, req);
 
             std::vector<uint8_t> resp;
-            if(!fail_safe_sr(&raw_cli, req.get(), resp))
+            if(!fail_safe_sr(&raw_cli, req.get(), resp, retries))
                 throw std::runtime_error("<mirror> [send] server down");
             check_subproto(std::string{resp.begin(), resp.end()});
             
@@ -136,7 +141,7 @@ namespace mirror {
             proto.send(data, c_tunnel, req);
 
             std::vector<uint8_t> resp;
-            if(!fail_safe_sr(&raw_cli, req.get(), resp))
+            if(!fail_safe_sr(&raw_cli, req.get(), resp, retries))
                 throw std::runtime_error("<mirror> [send] server down");
             check_subproto(std::string{resp.begin(), resp.end()});
             
@@ -147,7 +152,7 @@ namespace mirror {
             proto.recv(c_tunnel, req);
 
             std::vector<uint8_t> resp;
-            if(!fail_safe_sr(&raw_cli, req.get(), resp))
+            if(!fail_safe_sr(&raw_cli, req.get(), resp, retries))
                 throw std::runtime_error("<mirror> [recv] server down");
             check_subproto(std::string{resp.begin(), resp.end()});
             
@@ -160,7 +165,7 @@ namespace mirror {
             proto.discovery(req);
 
             std::vector<uint8_t> resp;
-            if(!fail_safe_sr(&raw_cli, req.get(), resp))
+            if(!fail_safe_sr(&raw_cli, req.get(), resp, retries))
                 throw std::runtime_error("<mirror> [discovery] server down");
             check_subproto(std::string{resp.begin(), resp.end()});
             return proto.discovery(resp, c_tunnel);
@@ -168,6 +173,10 @@ namespace mirror {
 
         nw::uid_t uid(){
             return proto.token();
+        }
+
+        void set_retries(int n){
+            retries = n;
         }
 
         Client(nw::address serv_address){

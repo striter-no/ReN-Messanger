@@ -6,6 +6,7 @@ int main(){
     mirror::Client cli(
         {"127.0.0.1", 9000}
     );
+    cli.set_retries(3);
     
     std::cout << "my uid: " << cli.uid() << std::endl;
     

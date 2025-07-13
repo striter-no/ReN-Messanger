@@ -32,6 +32,10 @@ namespace ernet {
             throw std::runtime_error("<ernet> [udp/cli] fatal failure: server callback function failed");
         } else if (data == "ernet-encr-failure"){
             throw std::runtime_error("<ernet> [udp/cli] fatal failure: server failed to encrypt response to client (encryption error)");
+        } else if (data == "ernet-control_sum-corrupted"){
+            throw std::runtime_error("<ernet> [udp/cli] fatal failure: server detected data corruption (network failure, control sum mismatch)");
+        } else if (data == "ernet-control_sum-proto"){
+            throw std::runtime_error("<ernet> [udp/cli] fatal failure: server protocol mismatch (control sum positioning mismatch)");
         }
     }
 
@@ -46,6 +50,22 @@ namespace ernet {
         while (retries-- > 0 && vresp.size() == 0){
             cli->send(req);
             cli->recv(vresp);
+            
+            if (vresp.size() < 10) {
+                std::cout << "[retry] received data too small, retrying..." << std::endl;
+                vresp.clear();
+                usleep(delay * 1'000'000);
+                continue;
+            }
+
+            std::string resp_str(vresp.begin(), vresp.end());
+            if (resp_str == "ernet-control_sum-corrupted") {
+                std::cout << "[retry] server detected control sum mismatch, retrying..." << std::endl;
+                vresp.clear();
+                usleep(delay * 1'000'000);
+                continue;
+            }
+
             if (vresp.size() == 0) usleep(delay * 1'000'000);
         }
         resp = vresp;
@@ -70,23 +90,77 @@ namespace ernet {
             float delay = 1.f
         ){
             std::cout << "[>] sending " << req.size() << " bytes" << std::endl;
+            
+            auto csum = crypto::sha256::hexidigest(req) + " ";
+            req.insert(req.begin(), csum.begin(), csum.end());
+            std::cout << '"' << std::string{req.begin(), req.end()} << '"' << std::endl;
+
             auto s = nw::getv(std::to_string(req.size()) + ' ');
             req.insert(req.begin(), s.begin(), s.end());
+            
             bool status = fail_safe_sr(cli, req, resp, retries, delay);
             if (!status) return false;
 
+            // Validate response size
+            if (resp.size() < 10) {
+                std::cerr << "<ernet_cli> [__send] response too small for parsing" << std::endl;
+                return false;
+            }
+
             int tracker = 0;
             std::string strdata{resp.begin(), resp.end()};
-            ssize_t r_strdata_size = std::stoull(next_simb(strdata, tracker, ' '));
             
-            std::cout << "[<] recevied " << r_strdata_size << " bytes ";
-            resp = {
-                resp.begin() + tracker,
-                resp.begin() + tracker + r_strdata_size
-            };
-            std::cout << "recv hash: " << crypto::sha256::hexidigest(resp) << std::endl;
-            check_serv({resp.begin(), resp.end()});
-            std::cout << " (" << resp.size() << ')' << std::endl;
+            // Parse size safely
+            try {
+                size_t space_pos = strdata.find(' ');
+                if (space_pos == std::string::npos) {
+                    std::cerr << "<ernet_cli> [__send] no space found for size parsing" << std::endl;
+                    return false;
+                }
+                
+                std::string size_str = strdata.substr(0, space_pos);
+                ssize_t r_strdata_size = std::stoull(size_str);
+                tracker = space_pos + 1;
+                
+                // Validate size
+                if (r_strdata_size <= 0 || r_strdata_size > 1024 * 1024) {
+                    std::cerr << "<ernet_cli> [__send] invalid data size: " << r_strdata_size << std::endl;
+                    return false;
+                }
+                
+                // Check if we have enough data
+                if (tracker + r_strdata_size > resp.size()) {
+                    std::cerr << "<ernet_cli> [__send] data size mismatch. Expected: " << r_strdata_size << ", Available: " << (resp.size() - tracker) << std::endl;
+                    return false;
+                }
+                
+                std::cout << "[<] recevied " << r_strdata_size << " bytes ";
+                resp = {
+                    resp.begin() + tracker,
+                    resp.begin() + tracker + r_strdata_size
+                };
+
+                tracker = 0;
+                std::string control_sum = next_simb({resp.begin(), resp.end()}, tracker, ' ');
+                resp = {
+                    resp.begin() + tracker,
+                    resp.end()
+                };
+
+                std::cout << "recv hash: " << crypto::sha256::hexidigest(resp) << std::endl;
+
+                if (crypto::sha256::hexidigest(resp) != control_sum){
+                    std::cerr << "<ernet_cli> [__send] control sums mismatch: " + control_sum + " != " + crypto::sha256::hexidigest(resp);
+                    return false;
+                }
+
+                check_serv({resp.begin(), resp.end()});
+                std::cout << " (" << resp.size() << ')' << std::endl;
+                
+            } catch (const std::exception &ex) {
+                std::cerr << "<ernet_cli> [__send] error parsing response size: " << ex.what() << std::endl;
+                return false;
+            }
 
             return true;
         }
@@ -195,6 +269,9 @@ namespace ernet {
             auto uid_v = nw::getv(std::to_string(uid) + " ");
             encr.insert(encr.begin(), uid_v.begin(), uid_v.end());
 
+            auto csum = crypto::sha256::hexidigest(encr) + " ";
+            encr.insert(encr.begin(), csum.begin(), csum.end());
+
             std::cout << "[^] sent: " << encr.size() << " bytes" << std::endl;
             auto s = nw::getv(std::to_string(encr.size()) + ' ');
             encr.insert(encr.begin(), s.begin(), s.end());
@@ -206,20 +283,67 @@ namespace ernet {
             int n = rawcli.recv(data, clear_buffer, max_buff_size);
             if (n <= 0) return n;
             
+            // Validate data size
+            if (data.size() < 10) {
+                std::cerr << "<ernet_cli> [recv] received data too small for parsing" << std::endl;
+                return -1;
+            }
 
-            int tracker = 0;
-            std::string strdata{data.begin(), data.end()};
-            ssize_t r_strdata_size = std::stoull(next_simb(strdata, tracker, ' '));
+            // Parse size safely
+            try {
+                std::string strdata{data.begin(), data.end()};
+                size_t space_pos = strdata.find(' ');
+                if (space_pos == std::string::npos) {
+                    std::cerr << "<ernet_cli> [recv] no space found for size parsing" << std::endl;
+                    return -1;
+                }
+                
+                std::string size_str = strdata.substr(0, space_pos);
+                ssize_t r_strdata_size = std::stoull(size_str);
+                int tracker = space_pos + 1;
+                
+                // Validate size
+                if (r_strdata_size <= 0 || r_strdata_size > 1024 * 1024) {
+                    std::cerr << "<ernet_cli> [recv] invalid data size: " << r_strdata_size << std::endl;
+                    return -1;
+                }
+                
+                // Check if we have enough data
+                if (tracker + r_strdata_size > data.size()) {
+                    std::cerr << "<ernet_cli> [recv] data size mismatch. Expected: " << r_strdata_size << ", Available: " << (data.size() - tracker) << std::endl;
+                    return -1;
+                }
 
-            data = {
-                data.begin() + tracker,
-                data.begin() + tracker + r_strdata_size
-            };
-            std::cout << "[>] got: " << data.size() << " bytes" << std::endl;
-            check_serv({data.begin(), data.end()});
+                data = {
+                    data.begin() + tracker,
+                    data.begin() + tracker + r_strdata_size
+                };
+                std::cout << "[>] got: " << data.size() << " bytes" << std::endl;
+                
+                tracker = 0;
+                std::string control_sum = next_simb({data.begin(), data.end()}, tracker, ' ');
+                data = {
+                    data.begin() + tracker,
+                    data.end()
+                };
+
+                std::cout << "recv hash: " << crypto::sha256::hexidigest(data) << std::endl;
+
+                if (crypto::sha256::hexidigest(data) != control_sum){
+                    std::cerr << "<ernet_cli> [recv] control sums mismatch: " + control_sum + " != " + crypto::sha256::hexidigest(data);
+                    return -1;
+                }
+                
+                check_serv({data.begin(), data.end()});
+                
+                data = aes_cf.decrypt(data);
+                std::cout << "[^] " << std::string(data.begin(), data.end()) << std::endl;
+                
+            } catch (const std::exception &ex) {
+                std::cerr << "<ernet_cli> [recv] error parsing data size: " << ex.what() << std::endl;
+                return -2;
+            }
             
-            data = aes_cf.decrypt(data);
-            std::cout << "[^] " << std::string(data.begin(), data.end()) << std::endl;
             return n;
         }
         
