@@ -119,6 +119,8 @@ namespace mirror {
             } catch (const std::exception& e) {
                 std::cout << "[MIRROR] ERROR parsing message: " << e.what() << std::endl;
                 std::cout << "[MIRROR] tracker: " << tracker << ", strdata length: " << strdata.length() << std::endl;
+                std::cout << "---------------" << std::endl;
+                std::cout << strdata << std::endl << std::endl;
                 ans = nw::getv("parse-error");
             }
         }

@@ -40,6 +40,24 @@ namespace ernet {
         }
     }
 
+    template<class T, class... Args>
+    T do_while(std::function<T()> f, T v) {
+        while (true) {
+            T r = f(); 
+            if (r != v)
+                return r;
+        }
+    }
+
+    template<class T, class... Args>
+    T do_while(std::function<T()> f, std::vector<T> v) {
+        while (true) {
+            T r = f(); 
+            if (std::find(v.begin(), v.end(), r) == v.end())
+                return r;
+        }
+    }
+
     bool fail_safe_sr(
         nw::client_udp *cli,
         std::vector<uint8_t> req,
@@ -83,7 +101,7 @@ namespace ernet {
 
         crypto::aes::CryptoF aes_cf;
 
-        bool __send(
+        int __send(
             nw::client_udp *cli,
             std::vector<uint8_t> req,
             std::vector<uint8_t> &resp,
@@ -100,12 +118,12 @@ namespace ernet {
             req.insert(req.begin(), s.begin(), s.end());
             
             bool status = fail_safe_sr(cli, req, resp, retries, delay);
-            if (!status) return false;
+            if (!status) return 1;
 
             // Validate response size
             if (resp.size() < 10) {
                 LOG_M("<ernet_cli> [__send] response too small for parsing");
-                return false;
+                return 2;
             }
 
             int tracker = 0;
@@ -116,7 +134,7 @@ namespace ernet {
                 size_t space_pos = strdata.find(' ');
                 if (space_pos == std::string::npos) {
                     std::cerr << "<ernet_cli> [__send] no space found for size parsing" << std::endl;
-                    return false;
+                    return 3;
                 }
                 
                 std::string size_str = strdata.substr(0, space_pos);
@@ -126,13 +144,13 @@ namespace ernet {
                 // Validate size
                 if (r_strdata_size <= 0 || r_strdata_size > 1024 * 1024) {
                     std::cerr << "<ernet_cli> [__send] invalid data size: " << r_strdata_size << std::endl;
-                    return false;
+                    return 4;
                 }
                 
                 // Check if we have enough data
                 if (tracker + r_strdata_size > resp.size()) {
                     std::cerr << "<ernet_cli> [__send] data size mismatch. Expected: " << r_strdata_size << ", Available: " << (resp.size() - tracker) << std::endl;
-                    return false;
+                    return 5;
                 }
                 
                 LOG_M("[<] recevied " << r_strdata_size << " bytes ");
@@ -152,7 +170,7 @@ namespace ernet {
 
                 if (crypto::sha256::hexidigest(resp) != control_sum){
                     std::cerr << "<ernet_cli> [__send] control sums mismatch: " + control_sum + " != " + crypto::sha256::hexidigest(resp);
-                    return false;
+                    return 6;
                 }
 
                 check_serv({resp.begin(), resp.end()});
@@ -160,10 +178,10 @@ namespace ernet {
                 
             } catch (const std::exception &ex) {
                 std::cerr << "<ernet_cli> [__send] error parsing response size: " << ex.what() << std::endl;
-                return false;
+                return 7;
             }
 
-            return true;
+            return 0;
         }
 
         void ern_hello(bool recreate_uid = true){
@@ -183,7 +201,14 @@ namespace ernet {
             LOG_M("pubhash: " << crypto::sha256::hexidigest(pb_key.saveToString()));
 
             resp.clear();
-            if (!__send(&rawcli, nw::getv(std::to_string(uid) + " " + pb_key.saveToString()), resp))
+            if (0 != do_while<int>(
+                [&](){ return __send(
+                    &rawcli,
+                    nw::getv(std::to_string(uid) + " " + pb_key.saveToString()),
+                    resp
+                ); },
+                {5, 6, 7}
+            ))
                 throw std::runtime_error("<ernet_cli> [ern_hello/rsa] server down");
             
             str_resp = {resp.begin(), resp.end()};
@@ -223,7 +248,14 @@ namespace ernet {
             LOG_M("aes key hash is: " << crypto::sha256::hexidigest(serv_aes_k.get_data()));
             
             resp.clear();
-            if (!__send(&rawcli, aes_data, resp))
+            if (0 != do_while<int>(
+                [&](){ return __send(
+                    &rawcli,
+                    aes_data,
+                    resp
+                ); },
+                {5, 6, 7}
+            ))
                 throw std::runtime_error("<ernet_cli> [ern_hello/aes] server down");
             
             resp = aes_cf.decrypt(resp);
@@ -241,7 +273,14 @@ namespace ernet {
             req.insert(req.end(), hello_vec.begin(), hello_vec.end());
 
             resp.clear();
-            if (!__send(&rawcli, req, resp))
+            if (0 != do_while<int>(
+                [&](){ return __send(
+                    &rawcli,
+                    req,
+                    resp
+                ); },
+                {5, 6, 7}
+            ))
                 throw std::runtime_error("<ernet_cli> [ern_hello/hello] server down");
             
             resp = aes_cf.decrypt(resp);
@@ -354,7 +393,14 @@ namespace ernet {
             if (uid != -1)
                 this->uid = uid;
 
-            ern_hello(uid == -1);
+            for (int i = 0; i < 3; i++){
+                try {
+                    ern_hello(uid == -1);
+                    break;
+                } catch (const std::exception &ex){
+                    std::cerr << "<ernet_cli> [change_serv_ip/ern_hello] " << i << " failed ern_hello: " << ex.what() << std::endl;
+                }
+            }
         }
 
         void create(){rawcli.create();}

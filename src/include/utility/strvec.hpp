@@ -37,8 +37,26 @@ int count(
     return i;
 }
 
+std::vector<std::string> split(std::string data, char delim = ' '){
+    std::vector<std::string> o;
+    int tracker = 0;
+    for (int i = 0; i <= count(data, delim); i++){
+        o.push_back(next_simb(data, tracker, delim));
+    }
+    return o;
+}
+
 template<class T>
-bool in(std::vector<T> &v, T e){
+bool in(std::vector<T> v, T e){
     for (auto &el: v) {if (el == e) return true; }
     return false;
+}
+
+template<class T, class K>
+std::vector<T> keys(std::vector<std::pair<T, K>> &vc){
+    std::vector<T> o;
+    for (auto &[k, v]: vc) {
+        o.push_back(k);
+    }
+    return o;
 }

@@ -15,6 +15,7 @@ using base_client_t = ernet::ernet_client;
 #endif
 
 #include <iostream>
+#include <algorithm>
 #include <map>
 
 namespace mirror {
@@ -46,8 +47,8 @@ namespace mirror {
         base_client_t raw_cli;
         ClientProto proto;
 
-        nw::uid_t c_tunnel = -1;
-        nw::uid_t peer_uid = -1;
+        std::vector<std::pair<nw::uid_t, nw::uid_t>> c_tunnels;
+        std::vector<nw::uid_t> connected_to;
         int retries = 1;
 
         void check_subproto(std::string resp){
@@ -56,16 +57,44 @@ namespace mirror {
             }
         }
 
+        void upd_peer(nw::uid_t &tun_uid, nw::uid_t &up){
+            for (auto &[t, p]: c_tunnels){
+                if (t == tun_uid){
+                    p = up;
+                }
+            }
+        }
+
         public:
 
-        nw::uid_t curr_tunnel(){ return c_tunnel; }
-        nw::uid_t conn_uid(){ return peer_uid; }
+        std::vector<nw::uid_t> conn_tunnels(){ 
+            std::vector<nw::uid_t> o;
+            for (auto &t: connected_to){
+                o.push_back(t);
+            }
+            return o;
+        }
 
-        Future create_tunnel(nw::uid_t &tun_uid, FutureContext &fcontext){
+        std::vector<nw::uid_t> opened_tunnels(){ 
+            std::vector<nw::uid_t> o;
+            for (auto &[t, p]: c_tunnels){
+                o.push_back(t);
+            }
+            return o;
+        }
+
+        nw::uid_t conn_uid(nw::uid_t &tun_uid){ 
+            std::vector<nw::uid_t> o;
+            for (auto &[t, p]: c_tunnels){
+                if (t == tun_uid) return p;
+            }
+            return -1;
+        }
+
+        void create_tunnel(nw::uid_t &tun_uid, nw::uid_t force_uid = -1){
             NetRequest req;
-            auto tuid = proto.create_tunnel(req);
-            tun_uid = tuid;
-            c_tunnel = tuid;
+            auto tuid = proto.create_tunnel(req, force_uid);
+            c_tunnels.push_back({tuid, -1});
 
             std::vector<uint8_t> resp;
             if(!fail_safe_sr(&raw_cli, req.get(), resp, retries))
@@ -73,26 +102,46 @@ namespace mirror {
             check_subproto(std::string{resp.begin(), resp.end()});
             
             if (std::string{resp.begin(), resp.end()} != "ok") throw std::runtime_error("<mirror> [create-tunnel] server disagree: " + std::string{resp.begin(), resp.end()});
+        }
 
-            Future f(fcontext.context(), emptl, [&]() mutable {
+        Future wait_tunnel(nw::uid_t tuid, FutureContext &fcontext, std::function<void()> onchecktrue = [](){}){
+            return {fcontext.context(), emptl, [this, tuid, onchecktrue]() mutable {
                 NetRequest req;
-                proto.check_tunnel(c_tunnel, req);
+                proto.check_tunnel(tuid, req);
 
                 std::vector<uint8_t> resp;
                 if(!fail_safe_sr(&raw_cli, req.get(), resp, retries))
-                    throw std::runtime_error("<mirror> [create-tunnel:future(check_tunnel)] server down");
+                    throw std::runtime_error("<mirror> [future(check_tunnel)] server down");
                 check_subproto(std::string{resp.begin(), resp.end()});
                 
                 auto res = proto.check_tunnel(resp);
                 if (res.has_value()){
-                    peer_uid = res.value();
+                    onchecktrue();
+                    upd_peer(tuid, res.value());
                     return true;
                 }
 
                 return false;
-            });
+            }};
+        }
 
-            return f;
+        Future wait_exist(nw::uid_t tuid, FutureContext &fcontext, std::function<void()> onchecktrue = [](){}){
+            return {fcontext.context(), emptl, [this, tuid, onchecktrue]() mutable {
+                NetRequest req;
+                proto.check_exist(tuid, req);
+
+                std::vector<uint8_t> resp;
+                if(!fail_safe_sr(&raw_cli, req.get(), resp, retries))
+                    throw std::runtime_error("<mirror> [future(wait_exist)] server down");
+                check_subproto(std::string{resp.begin(), resp.end()});
+                
+                if (proto.check_exist(resp)){
+                    onchecktrue();
+                    return true;
+                }
+
+                return false;
+            }};
         }
 
         bool connect_tunnel(nw::uid_t uid){
@@ -104,18 +153,37 @@ namespace mirror {
                 throw std::runtime_error("<mirror> [conn-tunnel] server down");
             check_subproto(std::string{resp.begin(), resp.end()});
             
-            c_tunnel = uid;
-            return std::string{resp.begin(), resp.end()} == "ok";
+            if (std::string{resp.begin(), resp.end()} == "ok"){
+                connected_to.push_back(uid);
+                return true;
+            }
+
+            return false;
         }
         
-        bool close_tunnel(){
-            if (c_tunnel == -1){
-                std::cerr << "<cerr:mirror> [close-tunnel] cannot close tunnel with uid == -1";
+        bool close_tunnel(nw::uid_t uid){
+            if (in(connected_to, uid)){
+                connected_to.erase(std::remove_if(
+                    connected_to.begin(), connected_to.end(),
+                    [uid](nw::uid_t tuid){
+                        return tuid == uid;
+                    }
+                ));
+            } else if(in(keys(c_tunnels), uid)){
+                c_tunnels.erase(std::remove_if(
+                    c_tunnels.begin(), c_tunnels.end(),
+                    [uid](std::pair<nw::uid_t, nw::uid_t> p){
+                        return p.first == uid;
+                    }
+                ));
+            } else {
+                std::cerr << "<cerr:mirror> [close-tunnel] tunnel with uid " << uid << " does not exists" << std::endl;
                 return false;
             }
 
+
             NetRequest req;
-            proto.close_tunnel(c_tunnel, req);
+            proto.close_tunnel(uid, req);
 
             std::vector<uint8_t> resp;
             if(!fail_safe_sr(&raw_cli, req.get(), resp, retries))
@@ -125,9 +193,14 @@ namespace mirror {
             return std::string{resp.begin(), resp.end()} == "ok";
         }
 
-        bool send(const std::vector<uint8_t>& data){
+        bool send(const std::vector<uint8_t>& data, nw::uid_t uid){
+            if (!in(connected_to, uid) && !in(keys(c_tunnels), uid)){
+                std::cerr << "<cerr:mirror> [send] tunnel with uid " << uid << " does not exists" << std::endl;
+                return false;
+            }
+            
             NetRequest req;
-            proto.send(data, c_tunnel, req);
+            proto.send(data, uid, req);
 
             std::vector<uint8_t> resp;
             if(!fail_safe_sr(&raw_cli, req.get(), resp, retries))
@@ -136,9 +209,14 @@ namespace mirror {
             
             return std::string{resp.begin(), resp.end()} == "ok";
         }
-        bool send(const std::string& data){
+        bool send(const std::string& data, nw::uid_t uid){
+            if (!in(connected_to, uid) && !in(keys(c_tunnels), uid)){
+                std::cerr << "<cerr:mirror> [send] tunnel with uid " << uid << " does not exists" << std::endl;
+                return false;
+            }
+
             NetRequest req;
-            proto.send(data, c_tunnel, req);
+            proto.send(data, uid, req);
 
             std::vector<uint8_t> resp;
             if(!fail_safe_sr(&raw_cli, req.get(), resp, retries))
@@ -147,36 +225,65 @@ namespace mirror {
             
             return std::string{resp.begin(), resp.end()} == "ok";
         }
-        std::optional<std::string> recv(){
+
+        bool recv(std::string &data, nw::uid_t uid){
+            if (!in(connected_to, uid) && !in(keys(c_tunnels), uid)){
+                std::cerr << "<cerr:mirror> [send] tunnel with uid " << uid << " does not exists" << std::endl;
+                return false;
+            }
+
             NetRequest req;
-            proto.recv(c_tunnel, req);
+            proto.recv(uid, req);
 
             std::vector<uint8_t> resp;
             if(!fail_safe_sr(&raw_cli, req.get(), resp, retries))
                 throw std::runtime_error("<mirror> [recv] server down");
             check_subproto(std::string{resp.begin(), resp.end()});
             
-            if (std::string{resp.begin(), resp.end()} == "no-data") return std::nullopt;
-            return proto.recv(resp);
+            if (std::string{resp.begin(), resp.end()} == "no-data") return false;
+            data = proto.recv(resp);
+            return true;
         }
-        
-        std::vector<nw::uid_t> discovery(){
+
+        bool recv(std::vector<uint8_t> &data, nw::uid_t uid){
+            if (!in(connected_to, uid) && !in(keys(c_tunnels), uid)){
+                std::cerr << "<cerr:mirror> [send] tunnel with uid " << uid << " does not exists" << std::endl;
+                return false;
+            }
+
             NetRequest req;
-            proto.discovery(req);
+            proto.recv(uid, req);
 
             std::vector<uint8_t> resp;
             if(!fail_safe_sr(&raw_cli, req.get(), resp, retries))
-                throw std::runtime_error("<mirror> [discovery] server down");
+                throw std::runtime_error("<mirror> [recv] server down");
             check_subproto(std::string{resp.begin(), resp.end()});
-            return proto.discovery(resp, c_tunnel);
+            
+            if (std::string{resp.begin(), resp.end()} == "no-data") return false;
+            data = proto.brecv(resp);
+            return true;
         }
+        
+        // std::vector<nw::uid_t> discovery(){
+        //     NetRequest req;
+        //     proto.discovery(req);
+        //     std::vector<uint8_t> resp;
+        //     if(!fail_safe_sr(&raw_cli, req.get(), resp, retries))
+        //         throw std::runtime_error("<mirror> [discovery] server down");
+        //     check_subproto(std::string{resp.begin(), resp.end()});
+        //     return proto.discovery(resp, uid);
+        // }
 
-        nw::uid_t uid(){
+        nw::uid_t get_uid(){
             return proto.token();
         }
 
         void set_retries(int n){
             retries = n;
+        }
+
+        void swap_serv(nw::address serv_address){
+            raw_cli.change_serv_ip(serv_address);
         }
 
         Client(nw::address serv_address){

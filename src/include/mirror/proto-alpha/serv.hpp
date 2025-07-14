@@ -118,7 +118,6 @@ namespace mirror {
         std::vector<uint8_t> check_tunnel(nw::address &cli_addr, nw::uid_t &cli_uid, nw::uid_t &tun_uid, std::vector<std::vector<uint8_t>> arguments){
             tunnels_mtx.lock();
             if (tunnels.find(tun_uid) == tunnels.end()) {
-                std::cout << tun_uid << std::endl; 
                 tunnels_mtx.unlock(); 
                 std::string msg = "not-exists";
                 return std::vector<uint8_t>(msg.begin(), msg.end());
@@ -133,6 +132,19 @@ namespace mirror {
             }
             std::string msg = "no";
             return std::vector<uint8_t>(msg.begin(), msg.end());
+        }
+
+        std::vector<uint8_t> check_exist(nw::address &cli_addr, nw::uid_t &cli_uid, nw::uid_t &tun_uid, std::vector<std::vector<uint8_t>> arguments){
+            tunnels_mtx.lock();
+            if (tunnels.find(tun_uid) == tunnels.end()) {
+                tunnels_mtx.unlock(); 
+                std::string msg = "no";
+                return std::vector<uint8_t>(msg.begin(), msg.end());
+            }
+            if (tun_uid != -1) tun_time[tun_uid] = nw::timestamp();
+            
+            tunnels_mtx.unlock();
+            return nw::getv("yes");
         }
 
         std::vector<uint8_t> send_bytes( nw::address &cli_addr, nw::uid_t &cli_uid, nw::uid_t &tun_uid, std::vector<std::vector<uint8_t>> arguments){

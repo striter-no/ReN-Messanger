@@ -49,8 +49,8 @@ namespace mirror {
             my_uid = nw::get_uid();
         }
 
-        nw::uid_t create_tunnel(NetRequest &r){
-            nw::uid_t tuid = nw::get_uid();
+        nw::uid_t create_tunnel(NetRequest &r, nw::uid_t force_uid = -1){
+            nw::uid_t tuid = force_uid == -1? nw::get_uid(): force_uid;
             r.type = "open-tunnel";
             r.add(my_uid);
             r.add(tuid);
@@ -72,6 +72,12 @@ namespace mirror {
 
         void check_tunnel(nw::uid_t &tun_uid, NetRequest &r){
             r.type = "check-tunnel";
+            r.add(my_uid);
+            r.add(tun_uid);
+        }
+
+        void check_exist(nw::uid_t &tun_uid, NetRequest &r){
+            r.type = "check-exist";
             r.add(my_uid);
             r.add(tun_uid);
         }
@@ -112,6 +118,17 @@ namespace mirror {
             }
         }
 
+        std::vector<uint8_t> brecv(const std::vector<uint8_t>& data){
+            std::string str(data.begin(), data.end());
+            if (str == "no-data"){
+                return {};
+            } else if (str == "not-exists"){
+                throw std::runtime_error("tunnel does not exists");
+            } else {
+                return data;
+            }
+        }
+
         std::vector<nw::uid_t> discovery(const std::vector<uint8_t>& data, nw::uid_t my_tunnel = -1){
             std::string str(data.begin(), data.end());
             if (str == "nothing"){
@@ -140,6 +157,11 @@ namespace mirror {
             }
 
             return std::stoll(str);
+        }
+
+        bool check_exist(const std::vector<uint8_t>& data){
+            std::string str(data.begin(), data.end());
+            return str != "no";
         }
         
         ClientProto(){}

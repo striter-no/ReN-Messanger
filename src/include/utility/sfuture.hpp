@@ -13,7 +13,7 @@ struct Future {
     std::function<bool()> await_function;
 
     template<class FF>
-    void await(FF &future_fabric, float latency = 0.f){
+    void await(FF &future_fabric, float latency = 0.f, bool reuid = false){
         if (future_fabric.futures.find(uid) == future_fabric.futures.end()){
             throw std::runtime_error("Future error: future with UID " + std::to_string(uid) + " is not exists in future fabric");
         }
@@ -25,6 +25,8 @@ struct Future {
 
         if (this->callback) 
             this->callback();
+        
+        if (reuid) uid = nw::get_uid();
     }
 
     Future(

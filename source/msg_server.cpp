@@ -27,9 +27,9 @@ int main(){
     serv.new_msg("recv", {{true}}, [&](nw::address& a, nw::uid_t& b, nw::uid_t& c, std::vector<std::vector<uint8_t>> d){
         return proto.recv_bytes(a, b, c, d);
     });
-    // serv.new_msg("discovery", {{true}}, [&](nw::address& a, nw::uid_t& b, nw::uid_t& c, std::vector<std::vector<uint8_t>> d){
-    //     return proto.discovery(a, b, c, d);
-    // });
+    serv.new_msg("check-exist", {}, [&](nw::address& a, nw::uid_t& b, nw::uid_t& c, std::vector<std::vector<uint8_t>> d){
+        return proto.check_exist(a, b, c, d);
+    });
 
     serv.run();
     while (true) {;}
