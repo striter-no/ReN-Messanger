@@ -1,5 +1,6 @@
 #pragma once
 #define ENCRYPTED_RNET
+#define NETDEBUG
 #include <mirror/client.hpp>
 
 #include <crypto/rsa/oaep_crypto.hpp>

@@ -54,6 +54,6 @@ namespace nw {
     }
 
     uid_t get_uid(){
-        return rnd::randint<long long>((long long)10000, 92233720368LL);
+        return rnd::randint<long long>(10LL, 92233720368LL);
     }
 }

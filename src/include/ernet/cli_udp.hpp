@@ -207,7 +207,7 @@ namespace ernet {
                     nw::getv(std::to_string(uid) + " " + pb_key.saveToString()),
                     resp
                 ); },
-                {5, 6, 7}
+                {5, 6}
             ))
                 throw std::runtime_error("<ernet_cli> [ern_hello/rsa] server down");
             
@@ -254,7 +254,7 @@ namespace ernet {
                     aes_data,
                     resp
                 ); },
-                {5, 6, 7}
+                {5, 6}
             ))
                 throw std::runtime_error("<ernet_cli> [ern_hello/aes] server down");
             
@@ -279,7 +279,7 @@ namespace ernet {
                     req,
                     resp
                 ); },
-                {5, 6, 7}
+                {5, 6}
             ))
                 throw std::runtime_error("<ernet_cli> [ern_hello/hello] server down");
             
